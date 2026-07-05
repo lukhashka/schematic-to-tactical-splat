@@ -4,15 +4,16 @@
 
 Schematic-To-CQB is an engineering and simulation pipeline designed to conceptualize, procedurally generate, and visualize complex multi-room tactical environments as highly dense **3D Gaussian Splatting (3DGS)** models.
 
-<p align="center">
-  <img src="assets/images/assets_01.png" width="90%" alt="Schematic-To-CQB Editor Overview">
-</p>
+
+| Schematic-To-CQB Overview | Schematic-To-CQB Editor Overview |
+|:------------:|:------------------------:|
+| ![](assets/images/assets_01.png) | ![](assets/images/assets_02.png) |
 
 ---
 
 ## 🚀 Key Features
 
-- **PyTorch C++ Generation Core**
+- **PyTorch C++ Generation Core** 
   - Native C++ acceleration for high-performance scene generation.
   - Multi-room environment construction in milliseconds.
   - Automatic camera inner-offset generation (4 cm).
