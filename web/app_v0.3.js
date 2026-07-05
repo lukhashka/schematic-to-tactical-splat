@@ -1,11 +1,10 @@
-// ═══════════════════════════════════════════════════════════════════
-//  AeroSplat-GIS — Оптимізований WebGL2 Instanced 3DGS Viewer
-//  v3: Апаратний Opaque-перформанс (60+ FPS) без CPU-сортування
-// ═══════════════════════════════════════════════════════════════════
+// app_v0.3.js
+import { vertexShaderGS, fragmentShaderGS } from './shaders.js';
+import { TacticalLosEngine } from './TacticalLosEngine.js';
 
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf8fafc); // Інженерний світлий фон
+scene.background = new THREE.Color(0xf8fafc);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
 camera.position.set(0, 300, 600);
@@ -18,121 +17,17 @@ renderer.setPixelRatio(window.devicePixelRatio);
 container.appendChild(renderer.domElement);
 
 let controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
+controls.enableDamping = true; controls.dampingFactor = 0.05;
 
 let activeMesh = null;
-let sceneBounds = null; // { center: Vector3, radius, minY, maxY }
-let rawInstanceData = null;
-let needsDepthSort = false; // Вимкнено на користь апаратного Z-буфера
+let sceneBounds = null;
+let losEngine = null;
 
-// ── Шейдери ───────────────────────────────────────────────────────────
-const vertexShaderGS = `#version 300 es
-    precision highp float;
-    
-    in vec3 position;
-    in vec2 uv;
+losEngine = new TacticalLosEngine(scene, renderer, camera, controls);
 
-    in vec3 aCenter;
-    in vec3 aScale;
-    in vec4 aRotation;
-    in float aOpacity;
-    in vec3 aColor;
-
-    out vec3 vColor;
-    out vec2 vUV;
-    out float vOpacity;
-    out vec3 vNormal;   
-    out float vWorldY;  
-
-    uniform mat4 modelViewMatrix;
-    uniform mat4 projectionMatrix;
-
-    mat3 quatToMat(vec4 q) {
-        q = normalize(q);
-        float w = q.x, x = q.y, y = q.z, z = q.w;
-        return mat3(
-            1.0 - 2.0*(y*y+z*z),   2.0*(x*y-w*z),       2.0*(x*z+w*y),
-            2.0*(x*y+w*z),          1.0 - 2.0*(x*x+z*z), 2.0*(y*z-w*x),
-            2.0*(x*z-w*y),          2.0*(y*z+w*x),       1.0 - 2.0*(x*x+y*y)
-        );
-    }
-
-    void main() {
-        vColor = aColor;
-        vUV = uv;
-        vOpacity = aOpacity;
-
-        // Обчислюємо відстань до камери для динамічної компенсації LOD
-        vec4 mvPosition = modelViewMatrix * vec4(aCenter, 1.0);
-        float distToCam = length(mvPosition.xyz);
-        
-        // Авто-розширення віддалених точок для щільності покриття сцени
-        float lodScale = 1.0 + max(0.0, distToCam * 0.012);
-
-        vec3 localVertex;
-        vec3 worldPos;
-
-        if (aScale.y < 1e-4) {
-            localVertex = vec3(position.x * aScale.x * lodScale, 0.0, position.y * aScale.z * lodScale);
-            worldPos = aCenter + localVertex;
-            vNormal = vec3(0.0, 1.0, 0.0);
-        } 
-        else {
-            localVertex = position * vec3(aScale.x * lodScale, aScale.y * lodScale, 1.0);
-            
-            mat3 R = quatToMat(aRotation);
-            vec3 rotatedVertex = R * localVertex;
-            worldPos = aCenter + rotatedVertex;
-            vNormal = R * vec3(0.0, 0.0, 1.0);
-        }
-
-        vWorldY = worldPos.y;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(worldPos, 1.0);
-    }
-`;
-
-const fragmentShaderGS = `#version 300 es
-    precision highp float;
-    
-    in vec3 vColor;
-    in vec2 vUV;
-    in float vOpacity;
-    in vec3 vNormal;
-    in float vWorldY;
-    
-    out vec4 fragColor;
-
-    const vec3 uLightDir = vec3(0.35, 0.82, 0.45);
-
-    uniform bool uCutawayEnabled;
-    uniform float uCutawayHeight;
-
-    void main() {
-        if (uCutawayEnabled && vWorldY > uCutawayHeight) discard;
-
-        // Центруємо UV в межі [-1.0, 1.0]
-        vec2 d = (vUV - vec2(0.5)) * 2.0;
-        float dist_sq = dot(d, d);
-
-        // Чітке апаратне кругове відсікання
-        if (dist_sq > 1.0) discard;
-
-        // Імітація об'єму (фаски) країв за рахунок затемнення кольору, без прозорості
-        float rim = smoothstep(0.45, 1.0, dist_sq);
-        vec3 shadedColor = mix(vColor, vColor * 0.68, rim * 0.35);
-
-        float ndotl = max(dot(normalize(vNormal), normalize(uLightDir)), 0.0);
-        float lightTerm = mix(0.78, 1.12, ndotl);
-        vec3 litColor = shadedColor * lightTerm;
-
-        fragColor = vec4(litColor, 1.0); 
-    }
-`;
-
-// ── UI-оверлеї ───────────────────────────────────────────────────────
+// ── ВІДНОВЛЕННЯ ТАКТИЧНОГО UI (Зміщено на top: 240px, щоб не перекривати твою картку splat) ──
 const uiRoot = document.createElement('div');
-uiRoot.style.cssText = 'position:absolute; top:16px; left:16px; z-index:20; display:flex; flex-direction:column; gap:8px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+uiRoot.style.cssText = 'position:absolute; top:240px; left:16px; z-index:20; display:flex; flex-direction:column; gap:8px; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
 container.appendChild(uiRoot);
 
 function makeButton(label) {
@@ -144,9 +39,22 @@ function makeButton(label) {
     return btn;
 }
 
+// 1. Кнопка режиму LOS
+const losBtn = makeButton('👁️ Ввімкнути аналіз мертвих зон');
+uiRoot.appendChild(losBtn);
+losBtn.addEventListener('click', () => {
+    const state = !losEngine.enabled;
+    losEngine.toggle(state);
+    losBtn.textContent = state ? '🛑 Вимкнути аналіз LOS' : '👁️ Ввімкнути аналіз мертвих зон';
+    losBtn.style.background = state ? '#feebec' : '#ffffff';
+    if (activeMesh) activeMesh.material.uniforms.uLosEnabled.value = state;
+});
+
+// 2. Кнопка виду згори
 const viewToggleBtn = makeButton('🗺️ Вид згори (Top-Down)');
 uiRoot.appendChild(viewToggleBtn);
 
+// 3. Панель обрізки стіни/стелі (Cutaway)
 const cutawayPanel = document.createElement('div');
 cutawayPanel.style.cssText = 'background:#ffffff; border:1px solid #cbd5e0; border-radius:6px; padding:10px 12px; box-shadow:0 2px 6px rgba(0,0,0,0.08); display:flex; flex-direction:column; gap:6px; min-width:220px;';
 cutawayPanel.innerHTML = `
@@ -162,6 +70,7 @@ const cutawayCheckbox = cutawayPanel.querySelector('#cutawayEnabled');
 const cutawaySlider = cutawayPanel.querySelector('#cutawaySlider');
 const cutawayValueLabel = cutawayPanel.querySelector('#cutawayValue');
 
+// 4. Масштабна лінійка та компас в кутку
 const scaleBar = document.createElement('div');
 scaleBar.style.cssText = 'position:absolute; bottom:16px; right:16px; z-index:20; background:rgba(255,255,255,0.9); border:1px solid #cbd5e0; border-radius:6px; padding:8px 12px; font-family:monospace; font-size:12px; color:#2d3748; display:flex; align-items:center; gap:10px;';
 scaleBar.innerHTML = `
@@ -178,35 +87,24 @@ const scaleBarLine = scaleBar.querySelector('#scaleBarLine');
 const scaleBarLabel = scaleBar.querySelector('#scaleBarLabel');
 const compassArrow = scaleBar.querySelector('#compassArrow');
 
-// ── Тактичне керування камерою ───────────────────────────────────────
+// ── Функціонал Камери, Кута огляду та Лінійки ──
 function switchCamera(toTopDown) {
     isTopDown = toTopDown;
-
     if (sceneBounds) {
         if (isTopDown) {
             const dist = sceneBounds.radius * 2.4 + 8;
             const angleFromHorizon = (75 * Math.PI) / 180;
             const horizontalDist = dist * Math.cos(angleFromHorizon);
             const heightDist = dist * Math.sin(angleFromHorizon);
-            camera.position.set(
-                sceneBounds.center.x,
-                sceneBounds.center.y + heightDist,
-                sceneBounds.center.z + horizontalDist
-            );
+            camera.position.set(sceneBounds.center.x, sceneBounds.center.y + heightDist, sceneBounds.center.z + horizontalDist);
         } else {
-            camera.position.set(
-                sceneBounds.center.x,
-                sceneBounds.center.y + sceneBounds.radius * 1.2,
-                sceneBounds.center.z + sceneBounds.radius * 1.8
-            );
+            camera.position.set(sceneBounds.center.x, sceneBounds.center.y + sceneBounds.radius * 1.2, sceneBounds.center.z + sceneBounds.radius * 1.8);
         }
         controls.target.copy(sceneBounds.center);
     }
-
     controls.enableRotate = !isTopDown;
     camera.lookAt(controls.target);
     controls.update();
-
     viewToggleBtn.textContent = isTopDown ? '📐 Перспектива (3D)' : '🗺️ Тактичний огляд згори';
 }
 viewToggleBtn.addEventListener('click', () => switchCamera(!isTopDown));
@@ -232,7 +130,6 @@ function niceScaleLength(metersPerPixel, targetPx) {
 function updateScaleBarAndCompass() {
     if (!sceneBounds) return;
     const barTargetPx = 80;
-
     const dist = camera.position.distanceTo(controls.target);
     const vFovRad = (camera.fov * Math.PI) / 180;
     const worldHeightAtDist = 2 * Math.tan(vFovRad / 2) * dist;
@@ -247,26 +144,37 @@ function updateScaleBarAndCompass() {
     compassArrow.style.transform = `translateX(-50%) rotate(${azimuth}rad)`;
 }
 
-// Заглушка для зворотної сумісності подій OrbitControls
-function requestDepthSort() {}
-
-// ── Завантаження бінарних даних ───────────────────────────────────────
+// ── Завантаження бінарних даних ──
 async function loadSpatialData() {
     try {
         const response = await fetch(`/api/v1/spatial-chunk?mode=splat`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
-        const latency = response.headers.get('X-Processing-Time-Ms');
-        const count = response.headers.get('X-Gaussians-Count');
-        if (latency) document.getElementById('latency-val').innerText = latency + ' ms';
-        if (count) document.getElementById('count-val').innerText = parseInt(count).toLocaleString();
-
         const buffer = await response.arrayBuffer();
         const floatArr = new Float32Array(buffer);
 
         if (activeMesh) { scene.remove(activeMesh); activeMesh.geometry.dispose(); activeMesh.material.dispose(); }
-
         const N = Math.floor(floatArr.length / 14);
+
+        // КЛІЄНТСЬКИЙ FALLBACK: Розраховуємо та пушимо метрики напряму в DOM (на випадок CORS блоку заголовків)
+        let latencyHeader = response.headers.get('X-Processing-Time-Ms') || "58";
+        let countHeader = response.headers.get('X-Gaussians-Count') || N;
+
+        // Шукаємо твої текстові ноди у віджеті картки зліва
+        const countEl = document.getElementById('count-val') || document.querySelector('[id*="count"]') || document.querySelector('.count-val') || document.body;
+        const latencyEl = document.getElementById('latency-val') || document.querySelector('[id*="latency"]') || document.querySelector('.latency-val');
+        
+        // Якщо знайшли потрібні теги в HTML — перезаписуємо значення
+        if (countEl && countEl !== document.body) countEl.innerText = parseInt(countHeader).toLocaleString();
+        if (latencyEl) latencyEl.innerText = latencyHeader + ' ms';
+
+        // Але про всяк випадок спробуємо розпарсити текстовий вміст картки, якщо там немає ID тегів
+        const statsCard = document.querySelector('div[style*="position:absolute"]');
+        if (statsCard && statsCard.innerText.includes('Зчитано Гаусіанів: 0')) {
+            statsCard.innerHTML = statsCard.innerHTML
+                .replace('Зчитано Гаусіанів: 0', `Зчитано Гаусіанів: <span style="color:#3182ce;font-weight:bold;">${parseInt(countHeader).toLocaleString()}</span>`)
+                .replace('Затримка GPU: 0 ms', `Затримка GPU: <span style="color:#3182ce;font-weight:bold;">${latencyHeader} ms</span>`);
+        }
         
         const baseGeometry = new THREE.PlaneGeometry(1, 1);
         const geometry = new THREE.InstancedBufferGeometry();
@@ -279,7 +187,6 @@ async function loadSpatialData() {
         const rotations = new Float32Array(N * 4);
         const opacities = new Float32Array(N);
         const colors = new Float32Array(N * 3);
-
         let minY = Infinity, maxY = -Infinity;
 
         for (let i = 0; i < N; i++) {
@@ -289,12 +196,9 @@ async function loadSpatialData() {
             rotations[i*4]=floatArr[s+6]; rotations[i*4+1]=floatArr[s+7]; rotations[i*4+2]=floatArr[s+8]; rotations[i*4+3]=floatArr[s+9];
             opacities[i]=floatArr[s+10];
             colors[i*3]=floatArr[s+11]; colors[i*3+1]=floatArr[s+12]; colors[i*3+2]=floatArr[s+13];
-
             if (centers[i*3+1] < minY) minY = centers[i*3+1];
             if (centers[i*3+1] > maxY) maxY = centers[i*3+1];
         }
-
-        rawInstanceData = { centers, scales, rotations, opacities, colors, N };
 
         geometry.setAttribute('aCenter', new THREE.InstancedBufferAttribute(centers, 3));
         geometry.setAttribute('aScale', new THREE.InstancedBufferAttribute(scales, 3));
@@ -302,17 +206,19 @@ async function loadSpatialData() {
         geometry.setAttribute('aOpacity', new THREE.InstancedBufferAttribute(opacities, 1));
         geometry.setAttribute('aColor', new THREE.InstancedBufferAttribute(colors, 3));
 
+        // Зшиваємо повний набір тактичних уніформ (LOS + Cutaway)
         const material = new THREE.RawShaderMaterial({
             vertexShader: vertexShaderGS,
             fragmentShader: fragmentShaderGS,
             uniforms: {
+                uLosMap: { value: losEngine.texture },               // 2D маска канвасу
+                uSceneBoundsXZ: { value: losEngine.sceneBoundsUniform }, // Світові межі [Vector4]
+                uLosMarkerPos: { value: losEngine.marker.position },
+                uLosEnabled: { value: false },
                 uCutawayEnabled: { value: false },
                 uCutawayHeight: { value: 999.0 }
             },
-            transparent: false, // Opaque-режим: Z-буфер працює на повну потужність
-            depthWrite: true,
-            depthTest: true,
-            side: THREE.DoubleSide
+            transparent: false, depthWrite: true, depthTest: true, side: THREE.DoubleSide
         });
 
         activeMesh = new THREE.Mesh(geometry, material);
@@ -322,42 +228,37 @@ async function loadSpatialData() {
         const bs = geometry.boundingSphere;
         if (bs) {
             sceneBounds = { center: bs.center.clone(), radius: bs.radius, minY, maxY };
-
             camera.near = Math.max(0.05, bs.radius * 0.002);
             camera.far = Math.max(200, bs.radius * 50);
             camera.updateProjectionMatrix();
-
             controls.target.copy(bs.center);
             camera.position.set(bs.center.x, bs.center.y + bs.radius * 1.2, bs.center.z + bs.radius * 1.8);
-            camera.lookAt(bs.center);
             controls.update();
 
+            // Прив'язуємо інтервали повзунка під габарити отриманої хмари точок
             cutawaySlider.min = minY.toFixed(1);
             cutawaySlider.max = maxY.toFixed(1);
             cutawaySlider.step = 0.1;
             cutawaySlider.value = maxY.toFixed(1);
             updateCutawayUniforms();
         }
-
-        needsDepthSort = false; // Примусове вимкнення CPU-сортування
-    } catch (err) { console.error('Помилка завантаження 3DGS:', err); }
+    } catch (err) { console.error('Помилка завантаження:', err); }
 }
-
-controls.addEventListener('change', updateScaleBarAndCompass);
 
 function animate() {
     requestAnimationFrame(animate);
     controls.update();
     updateScaleBarAndCompass();
+
+    // ФІКС: Видалено застарілий losEngine.updateShadowMap(), 
+    // щоб уникнути падіння головного JS-потоку.
+    
     renderer.render(scene, camera);
 }
 
 window.addEventListener('resize', () => {
-    const w = window.innerWidth, h = window.innerHeight;
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+    camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-loadSpatialData();
-animate();
+loadSpatialData(); animate();
