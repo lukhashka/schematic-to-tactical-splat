@@ -38,7 +38,7 @@ export class TacticalLosEngine {
 
     async loadLayoutWalls() {
         try {
-            const res = await fetch('/api/v1/layout'); //[cite: 6]
+            const res = await fetch('/api/v1/layout');
             if (!res.ok) return;
             const data = await res.json();
             if (data && Array.isArray(data.walls)) {
