@@ -95,10 +95,14 @@ class TacticalOrbitRenderer:
 
         # М'який антиаліасинг: векторизоване розмиття суміжних пікселів для знищення муару
         # Змішуємо поточний колір із сусідніми з коефіцієнтом прозорості (імітуємо радіус гауссіана на екрані)
+        # ВИПРАВЛЕНО: раніше тут використовувалась гола назва `uint16`, яка
+        # існувала лише як побічний ефект `if __name__ == "__main__":` внизу
+        # файла. Якщо цей клас імпортувати й викликати з іншого модуля
+        # (наприклад, з main.py), це падало з NameError. Тепер — напряму np.uint16.
         for du in [-1, 1]:
-            img[v_s, u_s + du] = (img[v_s, u_s + du].astype(uint16) * 4 + rgb_s.astype(uint16) * 3) // 7
+            img[v_s, u_s + du] = (img[v_s, u_s + du].astype(np.uint16) * 4 + rgb_s.astype(np.uint16) * 3) // 7
         for dv in [-1, 1]:
-            img[v_s + dv, u_s] = (img[v_s + dv, u_s].astype(uint16) * 4 + rgb_s.astype(uint16) * 3) // 7
+            img[v_s + dv, u_s] = (img[v_s + dv, u_s].astype(np.uint16) * 4 + rgb_s.astype(np.uint16) * 3) // 7
 
         return img
 
@@ -178,9 +182,6 @@ if __name__ == "__main__":
     PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     CLOUD_PT = os.path.join(PROJECT_DIR, "data", "cloud_splat.pt")
     COLMAP_OUT = os.path.join(PROJECT_DIR, "data", "colmap_output")
-    
-    # Використовуємо uint16 для безпечних розрахунків блендингу кольорів
-    uint16 = np.uint16
     
     renderer = TacticalOrbitRenderer(CLOUD_PT, COLMAP_OUT)
     renderer.generate_complex_trajectory(num_frames=150)
