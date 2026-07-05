@@ -36,6 +36,32 @@ Schematic-To-CQB is an engineering and simulation pipeline designed to conceptua
 
 ---
 
+## 👁️ Tactical Line-of-Sight (LOS) Engine
+
+A real-time tactical visibility analysis module that computes dead zones and fields of fire using an optimized 2D vector-based raycasting pipeline.
+
+### Key Architectural Features
+
+- **Analytical 2D Raycasting**
+  - Computes visibility geometry at eye level (`y = 1.6 m`).
+  - Uses custom micro-offset rays at wall corners to eliminate precision artifacts and ensure continuous visibility polygons.
+
+- **Correct Tactical Texture Mapping**
+  - Integrates `flipY = false` for `THREE.CanvasTexture`, eliminating mirrored shadow sectors along the Z-axis inside the fragment shader.
+
+- **Isolated Drag-and-Drop Interaction**
+  - Operator movement is performed via click-and-drag.
+  - During dragging, `OrbitControls` are automatically disabled, preventing interaction conflicts between camera navigation and tactical editing.
+
+- **Accurate Screen-to-World Projection**
+  - Ray generation is based on the canvas local dimensions (`getBoundingClientRect()`), eliminating coordinate offsets introduced by the editor's sidebar layout.
+
+### Visualization
+
+![Tactical LOS Demonstration](assets/images/assets_03.png)
+
+---
+
 ## 🛠️ Tech Stack
 
 | Category | Technologies |
