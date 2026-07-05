@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AeroSplat-GIS: Tactical 3D Stream</title>
+    <style>
+        body { 
+            margin: 0; padding: 0; overflow: hidden; 
+            background-color: #f4f6f8; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+        }
+        #ui-panel {
+            position: absolute; top: 16px; left: 16px; 
+            background: rgba(255, 255, 255, 0.92);
+            color: #1a202c; padding: 16px 20px; 
+            border: 1px solid #e2e8f0; border-radius: 8px;
+            z-index: 10; 
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+            backdrop-filter: blur(4px);
+        }
+        h3 { 
+            margin-top: 0; margin-bottom: 12px; color: #2d3748;
+            font-size: 14px; font-weight: 700;
+            border-bottom: 2px solid #edf2f7; padding-bottom: 6px; 
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .stat-line { margin: 6px 0; font-size: 13px; color: #4a5568; }
+        .stat-line b { color: #2d3748; font-weight: 600; }
+        .stat-val { color: #3182ce; font-weight: bold; font-family: monospace; }
+        .controls-hint { 
+            font-size: 11px; color: #718096; margin-top: 12px; 
+            border-top: 1px solid #edf2f7; padding-top: 8px; 
+            line-height: 1.4;
+        }
+        #canvas-container { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-panel">
+        <h3>schematic-to-tactical-splat v0.1</h3>
+        <div class="stat-line"><b>Об'єкт:</b> Тактичний комплекс (Процедурний)</div>
+        <div class="stat-line"><b>Зчитано Гаусіанів:</b> <span id="count-val" class="stat-val">0</span></div>
+        <div class="stat-line"><b>Затримка GPU:</b> <span id="latency-val" class="stat-val">0 ms</span></div>
+        <div class="controls-hint">Мишка: ЛКМ — обертання | ПКМ — зсув | Скрол — зум</div>
+        <a href="editor.html">editor</a>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <!-- Завантаження Three.js та компонентів управління -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="appGLSL.js"></script>
+</body>
+</html>

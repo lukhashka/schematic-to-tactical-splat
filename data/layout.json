@@ -1,0 +1,444 @@
+{
+  "metadata": {
+    "scene_name": "Tactical_Generated_Complex",
+    "point_density_per_meter": 65
+  },
+  "materials": {
+    "wall": [
+      0.6,
+      0.6,
+      0.6
+    ],
+    "floor": [
+      0.88,
+      0.9,
+      0.92
+    ],
+    "door": [
+      0.75,
+      0.3,
+      0.2
+    ]
+  },
+  "walls": [
+    {
+      "start": [
+        -3,
+        -3
+      ],
+      "end": [
+        3,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        1
+      ]
+    },
+    {
+      "start": [
+        3,
+        -3
+      ],
+      "end": [
+        3,
+        -2.3452478708473903
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        -1,
+        0
+      ]
+    },
+    {
+      "start": [
+        3,
+        -2.3452478708473903
+      ],
+      "end": [
+        3,
+        -1.3452478708473905
+      ],
+      "type": "door",
+      "height": 3,
+      "normal": [
+        -1,
+        0
+      ]
+    },
+    {
+      "start": [
+        3,
+        -1.3452478708473905
+      ],
+      "end": [
+        3,
+        3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        -1,
+        0
+      ]
+    },
+    {
+      "start": [
+        3,
+        3
+      ],
+      "end": [
+        -3,
+        3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        -1
+      ]
+    },
+    {
+      "start": [
+        -3,
+        3
+      ],
+      "end": [
+        -3,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        1,
+        0
+      ]
+    },
+    {
+      "start": [
+        3,
+        -3
+      ],
+      "end": [
+        4.040629936750267,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        1
+      ]
+    },
+    {
+      "start": [
+        4.040629936750267,
+        -3
+      ],
+      "end": [
+        5.040629936750267,
+        -3
+      ],
+      "type": "door",
+      "height": 3,
+      "normal": [
+        0,
+        1
+      ]
+    },
+    {
+      "start": [
+        5.040629936750267,
+        -3
+      ],
+      "end": [
+        7.5,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        1
+      ]
+    },
+    {
+      "start": [
+        7.5,
+        -3
+      ],
+      "end": [
+        7.5,
+        1
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        -1,
+        0
+      ]
+    },
+    {
+      "start": [
+        7.5,
+        1
+      ],
+      "end": [
+        3,
+        1
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        -1
+      ]
+    },
+    {
+      "start": [
+        3,
+        1
+      ],
+      "end": [
+        3,
+        -1.3452478708473903
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        1,
+        0
+      ]
+    },
+    {
+      "start": [
+        3,
+        -1.3452478708473903
+      ],
+      "end": [
+        3,
+        -2.3452478708473903
+      ],
+      "type": "door",
+      "height": 3,
+      "normal": [
+        1,
+        0
+      ]
+    },
+    {
+      "start": [
+        3,
+        -2.3452478708473903
+      ],
+      "end": [
+        3,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        1,
+        0
+      ]
+    },
+    {
+      "start": [
+        3,
+        -7
+      ],
+      "end": [
+        7.5,
+        -7
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        1
+      ]
+    },
+    {
+      "start": [
+        7.5,
+        -7
+      ],
+      "end": [
+        7.5,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        -1,
+        0
+      ]
+    },
+    {
+      "start": [
+        7.5,
+        -3
+      ],
+      "end": [
+        5.040629936750267,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        -1
+      ]
+    },
+    {
+      "start": [
+        5.040629936750267,
+        -3
+      ],
+      "end": [
+        4.040629936750267,
+        -3
+      ],
+      "type": "door",
+      "height": 3,
+      "normal": [
+        0,
+        -1
+      ]
+    },
+    {
+      "start": [
+        4.040629936750267,
+        -3
+      ],
+      "end": [
+        3,
+        -3
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        0,
+        -1
+      ]
+    },
+    {
+      "start": [
+        3,
+        -3
+      ],
+      "end": [
+        3,
+        -7
+      ],
+      "type": "wall",
+      "height": 3,
+      "normal": [
+        1,
+        0
+      ]
+    }
+  ],
+  "floors": [
+    {
+      "min_x": -3,
+      "max_x": 3,
+      "min_z": -3,
+      "max_z": 3,
+      "y": 0
+    },
+    {
+      "min_x": 3,
+      "max_x": 7.5,
+      "min_z": -3,
+      "max_z": 1,
+      "y": 0
+    },
+    {
+      "min_x": 3,
+      "max_x": 7.5,
+      "min_z": -7,
+      "max_z": -3,
+      "y": 0
+    }
+  ],
+  "rooms": [
+    {
+      "id": "room_1",
+      "width": 6,
+      "length": 6,
+      "height": 3,
+      "x": -3,
+      "z": -3,
+      "doors": {
+        "top": 0,
+        "right": 1,
+        "bottom": 0,
+        "left": 0
+      }
+    },
+    {
+      "id": "room_2",
+      "width": 4.5,
+      "length": 4,
+      "height": 3,
+      "x": 3,
+      "z": -3,
+      "doors": {
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 1
+      }
+    },
+    {
+      "id": "room_3",
+      "width": 4.5,
+      "length": 4,
+      "height": 3,
+      "x": 3,
+      "z": -7
+    }
+  ],
+  "roomIdCounter": 6,
+  "openings": [
+    {
+      "id": "opening_7",
+      "type": "door",
+      "edgeId": "int:room_1:room_2:z:3.00:-3.00",
+      "axis": "z",
+      "const": 3,
+      "range": [
+        -3,
+        1
+      ],
+      "roomA": "room_1",
+      "sideA": "right",
+      "roomB": "room_2",
+      "sideB": "left",
+      "center": -1.8452478708473905,
+      "width": 1
+    },
+    {
+      "id": "opening_8",
+      "type": "door",
+      "edgeId": "int:room_2:room_3:x:-3.00:3.00",
+      "axis": "x",
+      "const": -3,
+      "range": [
+        3,
+        7.5
+      ],
+      "roomA": "room_2",
+      "sideA": "top",
+      "roomB": "room_3",
+      "sideB": "bottom",
+      "center": 4.540629936750267,
+      "width": 1
+    }
+  ],
+  "openingIdCounter": 9
+}

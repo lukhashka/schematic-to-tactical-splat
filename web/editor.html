@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <title>AeroSplat-GIS: Tactical Space Editor</title>
+    <style>
+        body { 
+            margin: 0; padding: 0; display: flex; 
+            background-color: #f4f6f8; color: #1a202c; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            height: 100vh; overflow: hidden; 
+        }
+        #sidebar { 
+            width: 320px; background: #ffffff; 
+            border-right: 1px solid #e2e8f0; padding: 24px; 
+            display: flex; flex-direction: column; gap: 20px; 
+            box-shadow: 2px 0 10px rgba(0,0,0,0.03); 
+        }
+        #canvas-container { 
+            flex-grow: 1; position: relative; 
+            background: radial-gradient(circle, #cbd5e1 1px, transparent 1px); 
+            background-size: 20px 20px; background-color: #f8fafc; 
+        }
+        canvas { width: 100%; height: 100%; display: block; }
+        h3 { 
+            margin: 0 0 5px 0; color: #2d3748; font-size: 16px; 
+            font-weight: 700; border-bottom: 2px solid #edf2f7; 
+            padding-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; 
+        }
+        .control-group { display: flex; flex-direction: column; gap: 6px; }
+        label { font-size: 11px; color: #718096; font-weight: 600; text-transform: uppercase; }
+        input, select { 
+            background: #ffffff; color: #1a202c; border: 1px solid #cbd5e0; 
+            padding: 8px 12px; font-family: monospace; font-size: 14px; 
+            border-radius: 6px; outline: none; transition: border-color 0.2s;
+        }
+        input:focus, select:focus { border-color: #3182ce; }
+        .btn-action { 
+            margin-top: auto; padding: 14px; background: #3182ce; color: #ffffff; 
+            border: none; font-size: 14px; font-weight: bold; border-radius: 6px; 
+            cursor: pointer; letter-spacing: 0.5px; transition: background 0.2s;
+        }
+        .btn-action:hover { background: #2b6cb0; box-shadow: 0 4px 12px rgba(49, 130, 206, 0.3); }
+        .wall-config { 
+            background: #f7fafc; border: 1px solid #e2e8f0; padding: 10px; 
+            border-radius: 6px; display: flex; flex-direction: column; gap: 6px; 
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h3>📐 Моделювання сцени</h3>
+        
+        <div id="room-inspector" style="display: none;">
+            <label style="display:block; margin-bottom:12px;">Активний блок: <span id="active-room-id" style="font-family:monospace; color:#3182ce; font-weight:bold;">#</span></label>
+            <div class="control-group">
+                <label>Ширина (X, метри)</label>
+                <input type="number" id="room-width" min="2" max="30" step="0.5">
+            </div>
+            <div class="control-group" style="margin-top: 10px;">
+                <label>Довжина (Z, метри)</label>
+                <input type="number" id="room-length" min="2" max="30" step="0.5">
+            </div>
+            <div class="control-group" style="margin-top: 10px;">
+                <label>Висота стелі (Y, метри)</label>
+                <input type="number" id="room-height" min="2" max="10" step="0.5">
+            </div>
+
+            <h4 style="margin: 20px 0 8px 0; font-size: 12px; color:#4a5568; text-transform:uppercase;">🚪 Двері:</h4>
+            <div class="wall-config" style="color:#4a5568; font-size:12px; line-height:1.5;">
+                Клікніть на <span style="color:#0d9488; font-weight:bold;">бірюзову лінію</span> (спільна стіна між кімнатами) або на власну зовнішню стіну кімнати, щоб додати двері. Клік по існуючих дверях — видаляє їх.
+                <br><br>
+                Ширина дверей фіксована: <b>1.0 м</b>. Двері на спільній стіні автоматично вирізають прохід в обох кімнатах одночасно, навіть якщо кімнати різного розміру.
+            </div>
+
+            <button class="btn-action" style="margin-top:20px; background:#e53e3e;" onmouseover="this.style.background='#c53030'" onmouseout="this.style.background='#e53e3e'" onclick="deleteActiveRoom()">🗑 ВИДАЛИТИ КІМНАТУ</button>
+        </div>
+        
+        <div id="no-selection" style="color: #a0aec0; font-size: 12px; text-align: center; margin: auto 0; line-height: 1.5;">
+            Оберіть кімнату для конфігурації або натисніть на [+ НАПРЯМОК] для розширення простору
+        </div>
+
+        <button class="btn-action" onclick="compileAndSendLayout()">🚀 ЗГЕНЕРУВАТИ ТАКТИЧНИЙ СПЛАТ</button>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="editorCanvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('editorCanvas');
+        const ctx = canvas.getContext('2d');
+        const SCALE = 35; 
+        let rooms = [];
+        let activeRoomId = null;
+        let roomIdCounter = 1; // ВИПРАВЛЕНО: лічильник, що не переприсвоюється,
+                                // на відміну від rooms.length+1, який колізує після видалення кімнати
+
+        // НОВЕ: двері більше не належать окремій кімнаті — вони прив'язані
+        // до СПІЛЬНОГО РЕБРА між двома кімнатами (або до зовнішньої стіни,
+        // якщо сусіда немає). Це вирішує проблему неспівпадіння дверей між
+        // кімнатами різного розміру: положення дверей обчислюється один раз
+        // у світових координатах і використовується під час компіляції для
+        // ОБОХ суміжних кімнат, тож отвір завжди рівно посередині того самого
+        // фізичного шматка стіни, а не центру "власної" стіни кожної кімнати.
+        let openings = [];
+        let openingIdCounter = 0;
+        const DOOR_WIDTH = 1.0;
+        const MIN_EDGE_FOR_DOOR = 1.1; // трохи більше за ширину дверей
+
+        rooms.push({
+            id: "room_1", width: 6.0, length: 6.0, height: 3.0, x: -3.0, z: -3.0
+        });
+        activeRoomId = "room_1";
+
+        // Спробувати завантажити раніше збережену схему з бекенду
+        // (використовує GET /api/v1/layout, який тепер повертає останній layout.json)
+        async function loadSavedLayout() {
+            try {
+                const res = await fetch('/api/v1/layout');
+                if (!res.ok) return; // 404 = ще немає збереженої схеми, лишаємо дефолт
+                const saved = await res.json();
+                if (!saved || !Array.isArray(saved.rooms) || saved.rooms.length === 0) return;
+                rooms = saved.rooms;
+                roomIdCounter = saved.roomIdCounter || (rooms.length + 1);
+                openings = Array.isArray(saved.openings) ? saved.openings : [];
+                openingIdCounter = saved.openingIdCounter || openings.length;
+                activeRoomId = rooms[0].id;
+                updateInspector();
+                draw();
+            } catch (err) {
+                console.warn('Не вдалось завантажити збережену схему, лишаю дефолт:', err);
+            }
+        }
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            draw();
+        }
+
+        function updateLayoutGraph() {
+            let changed = true;
+            let iterations = 0;
+            
+            // Порогова відстань магнітного притягання (0.6 метра)
+            const SNAP_DIST = 0.6; 
+
+            while (changed && iterations < 15) {
+                changed = false;
+                iterations++;
+                
+                for (let r1 of rooms) {
+                    for (let r2 of rooms) {
+                        if (r1.id === r2.id) continue;
+
+                        // ── 1. ДВОСТОРУННЯ МАГНІТНІСТЬ ПО ОСІ X ────────────────
+                        // Перевіряємо, чи перетинаються кімнати по вертикалі, щоб липнути боками
+                        const overlapZ = (Math.max(r1.z + r1.length, r2.z + r2.length) - Math.min(r1.z, r2.z)) < (r1.length + r2.length);
+
+                        if (overlapZ) {
+                            // Якщо права межа r1 дуже близько до лівої межі r2 -> Склеюємо їх намертво!
+                            if (Math.abs((r1.x + r1.width) - r2.x) < SNAP_DIST) {
+                                let targetX = r1.x + r1.width;
+                                if (r2.x !== targetX) { r2.x = targetX; changed = true; }
+                            }
+                            // НАВПАКY (для зменшення): якщо ліва межа r2 відійшла, але все ще близько до правої r1
+                            else if (Math.abs(r2.x - (r1.x + r1.width)) < SNAP_DIST) {
+                                let targetW = r2.x - r1.x;
+                                if (targetW > 1.5 && r1.width !== targetW) { r1.width = targetW; changed = true; }
+                            }
+                        }
+
+                        // ── 2. ДВОСТОРУННЯ МАГНІТНІСТЬ ПО ОСІ Z ────────────────
+                        // Перевіряємо, чи перетинаються кімнати по горизонталі, щоб липнути верхом/низом
+                        const overlapX = (Math.max(r1.x + r1.width, r2.x + r2.width) - Math.min(r1.x, r2.x)) < (r1.width + r2.width);
+
+                        if (overlapX) {
+                            // Якщо нижня межа r1 близько до верхньої межі r2 -> Склеюємо!
+                            if (Math.abs((r1.z + r1.length) - r2.z) < SNAP_DIST) {
+                                let targetZ = r1.z + r1.length;
+                                if (r2.z !== targetZ) { r2.z = targetZ; changed = true; }
+                            }
+                            // НАВПАКY: при зменшенні підтягуємо межу нижньої кімнати вгору
+                            else if (Math.abs(r2.z - (r1.z + r1.length)) < SNAP_DIST) {
+                                let targetL = r2.z - r1.z;
+                                if (targetL > 1.5 && r1.length !== targetL) { r1.length = targetL; changed = true; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Додамо Grid Snapping (прив'язку до кроку 0.5 метра) при ручному введенні,
+        // щоб користувач не міг зробити щілину в 0.001 метра, яка зламає геометрію
+        const DIM_LIMITS = {
+            'room-width':  { min: 2, max: 30 },
+            'room-length': { min: 2, max: 30 },
+            'room-height': { min: 2, max: 10 }
+        };
+        ['room-width', 'room-length', 'room-height'].forEach(id => {
+            document.getElementById(id).addEventListener('input', (e) => {
+                const room = rooms.find(r => r.id === activeRoomId);
+                if (!room) return;
+                
+                let val = parseFloat(e.target.value) || 2;
+                // Округлюємо до найближчих 0.5 метра для ідеального стикування
+                val = Math.round(val * 2) / 2;
+                // ВИПРАВЛЕНО: тепер реально застосовуємо min/max, що вже були
+                // задекларовані на <input>, але раніше нічим не перевірялись у JS
+                const { min, max } = DIM_LIMITS[id];
+                val = Math.min(max, Math.max(min, val));
+                e.target.value = val;
+                
+                if (id === 'room-width') room.width = val;
+                if (id === 'room-length') room.length = val;
+                if (id === 'room-height') room.height = val;
+                
+                updateLayoutGraph(); 
+                draw();
+            });
+        });
+
+        // ═══════════════════════════════════════════════════════════
+        //  ОБЧИСЛЕННЯ РЕБЕР СТІН (edges) — інтер'єрні (спільні) та зовнішні
+        // ═══════════════════════════════════════════════════════════
+        // Для кожної сторони кожної кімнати шукаємо сусідів, що стикаються
+        // саме з цією стіною, і ділимо повну довжину стіни на під-сегменти:
+        //  - "interior": ділянка, що фактично межує з іншою кімнатою
+        //    (перекриття діапазонів навіть якщо кімнати різного розміру!)
+        //  - "exterior": все, що лишилось непокритим — зовнішня стіна
+        // Двері можна ставити на будь-який сегмент (exterior — для входу
+        // ззовні, interior — прохід між кімнатами).
+        const EDGE_SNAP = 0.05; // толерантність "стикування" стін (метри)
+
+        function computeWallEdges() {
+            const edges = [];
+
+            function processSide(room, side) {
+                let axis, constVal, lo, hi;
+                if (side === 'top')    { axis = 'x'; constVal = room.z;             lo = room.x; hi = room.x + room.width; }
+                if (side === 'bottom') { axis = 'x'; constVal = room.z + room.length; lo = room.x; hi = room.x + room.width; }
+                if (side === 'left')   { axis = 'z'; constVal = room.x;             lo = room.z; hi = room.z + room.length; }
+                if (side === 'right')  { axis = 'z'; constVal = room.x + room.width; lo = room.z; hi = room.z + room.length; }
+
+                // Знаходимо всіх сусідів, чия протилежна стіна лежить на тій самій лінії
+                const intervals = [];
+                for (const other of rooms) {
+                    if (other.id === room.id) continue;
+                    let oConst, oLo, oHi, neighborSide;
+                    if (side === 'top')    { oConst = other.z + other.length; oLo = other.x; oHi = other.x + other.width; neighborSide = 'bottom'; }
+                    if (side === 'bottom') { oConst = other.z;                 oLo = other.x; oHi = other.x + other.width; neighborSide = 'top'; }
+                    if (side === 'left')   { oConst = other.x + other.width;   oLo = other.z; oHi = other.z + other.length; neighborSide = 'right'; }
+                    if (side === 'right')  { oConst = other.x;                 oLo = other.z; oHi = other.z + other.length; neighborSide = 'left'; }
+
+                    if (Math.abs(oConst - constVal) > EDGE_SNAP) continue; // не на цій лінії
+                    const ol = Math.max(lo, oLo), oh = Math.min(hi, oHi);
+                    if (oh - ol > 0.05) intervals.push({ lo: ol, hi: oh, neighbor: other, neighborSide });
+                }
+
+                intervals.sort((a, b) => a.lo - b.lo);
+                let cursor = lo;
+                for (const iv of intervals) {
+                    if (iv.lo > cursor + 0.02) {
+                        edges.push({
+                            id: `ext:${room.id}:${side}:${cursor.toFixed(2)}`,
+                            axis, const: constVal, range: [cursor, iv.lo],
+                            roomA: room.id, sideA: side, roomB: null, sideB: null
+                        });
+                    }
+                    // Уникаємо дублювання: спільне ребро додаємо лише один раз
+                    // (коли обробляємо кімнату з лексикографічно меншим id)
+                    if (room.id < iv.neighbor.id) {
+                        edges.push({
+                            id: `int:${room.id}:${iv.neighbor.id}:${axis}:${constVal.toFixed(2)}:${iv.lo.toFixed(2)}`,
+                            axis, const: constVal, range: [iv.lo, iv.hi],
+                            roomA: room.id, sideA: side, roomB: iv.neighbor.id, sideB: iv.neighborSide
+                        });
+                    }
+                    cursor = Math.max(cursor, iv.hi);
+                }
+                if (hi - cursor > 0.02) {
+                    edges.push({
+                        id: `ext:${room.id}:${side}:${cursor.toFixed(2)}`,
+                        axis, const: constVal, range: [cursor, hi],
+                        roomA: room.id, sideA: side, roomB: null, sideB: null
+                    });
+                }
+            }
+
+            for (const room of rooms) {
+                ['top', 'right', 'bottom', 'left'].forEach(side => processSide(room, side));
+            }
+            return edges;
+        }
+
+        // Прибирає отвори, чиє ребро зникло (кімнату видалили/змінили розмір)
+        // або більше не влазить у нову довжину сегмента; підтягує центр у межі.
+        function revalidateOpenings() {
+            const edges = computeWallEdges();
+            const byId = new Map(edges.map(e => [e.id, e]));
+            openings = openings.filter(o => {
+                const e = byId.get(o.edgeId);
+                if (!e) return false;
+                const span = e.range[1] - e.range[0];
+                if (span < o.width + 0.02) return false;
+                const half = o.width / 2;
+                o.center = Math.min(e.range[1] - half, Math.max(e.range[0] + half, o.center));
+                o.const = e.const;
+                o.range = e.range.slice();
+                return true;
+            });
+        }
+
+        function openingToScreenSegment(o, originX, originY) {
+            const half = o.width / 2;
+            let wx1, wz1, wx2, wz2;
+            if (o.axis === 'x') { wx1 = o.center - half; wz1 = o.const; wx2 = o.center + half; wz2 = o.const; }
+            else                { wx1 = o.const; wz1 = o.center - half; wx2 = o.const; wz2 = o.center + half; }
+            return {
+                x1: originX + wx1 * SCALE, z1: originY + wz1 * SCALE,
+                x2: originX + wx2 * SCALE, z2: originY + wz2 * SCALE
+            };
+        }
+
+        function edgeToScreenSegment(edge, originX, originY) {
+            let wx1, wz1, wx2, wz2;
+            if (edge.axis === 'x') { wx1 = edge.range[0]; wz1 = edge.const; wx2 = edge.range[1]; wz2 = edge.const; }
+            else                   { wx1 = edge.const; wz1 = edge.range[0]; wx2 = edge.const; wz2 = edge.range[1]; }
+            return {
+                x1: originX + wx1 * SCALE, z1: originY + wz1 * SCALE,
+                x2: originX + wx2 * SCALE, z2: originY + wz2 * SCALE
+            };
+        }
+
+        function findEdgeNear(worldX, worldZ) {
+            const tol = 8 / SCALE; // ~8px толерантність кліку
+            const edges = computeWallEdges();
+            for (const edge of edges) {
+                if (edge.axis === 'x') {
+                    if (Math.abs(worldZ - edge.const) > tol) continue;
+                    if (worldX < edge.range[0] - 0.05 || worldX > edge.range[1] + 0.05) continue;
+                } else {
+                    if (Math.abs(worldX - edge.const) > tol) continue;
+                    if (worldZ < edge.range[0] - 0.05 || worldZ > edge.range[1] + 0.05) continue;
+                }
+                return edge;
+            }
+            return null;
+        }
+
+        function handleWallClick(worldX, worldZ) {
+            const edge = findEdgeNear(worldX, worldZ);
+            if (!edge) return false;
+
+            const posOnEdge = edge.axis === 'x' ? worldX : worldZ;
+
+            // Клік по вже існуючих дверях на цьому ребрі -> видалити їх
+            const existingIdx = openings.findIndex(o => o.edgeId === edge.id && Math.abs(o.center - posOnEdge) <= o.width / 2 + 0.15);
+            if (existingIdx !== -1) {
+                openings.splice(existingIdx, 1);
+                draw();
+                return true;
+            }
+
+            const span = edge.range[1] - edge.range[0];
+            if (span < MIN_EDGE_FOR_DOOR) {
+                alert('Цей шматок стіни закороткий для дверей (' + span.toFixed(2) + ' м).');
+                return true;
+            }
+
+            const half = DOOR_WIDTH / 2;
+            let center = Math.min(edge.range[1] - half, Math.max(edge.range[0] + half, posOnEdge));
+
+            // Не даємо дверям накладатись одна на одну на тому самому ребрі
+            const sameEdge = openings.filter(o => o.edgeId === edge.id);
+            for (const o of sameEdge) {
+                if (Math.abs(o.center - center) < (o.width / 2 + half + 0.1)) {
+                    alert('Тут вже занадто близько інші двері.');
+                    return true;
+                }
+            }
+
+            openingIdCounter++;
+            openings.push({
+                id: `opening_${openingIdCounter}`,
+                type: 'door',
+                edgeId: edge.id,
+                axis: edge.axis, const: edge.const, range: edge.range.slice(),
+                roomA: edge.roomA, sideA: edge.sideA, roomB: edge.roomB, sideB: edge.sideB,
+                center: center, width: DOOR_WIDTH
+            });
+            draw();
+            return true;
+        }
+
+        function draw() {
+            revalidateOpenings();
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const originX = canvas.width / 2;
+            const originY = canvas.height / 2;
+
+            rooms.forEach(room => {
+                const rx = originX + room.x * SCALE;
+                const rz = originY + room.z * SCALE;
+                const rw = room.width * SCALE;
+                const rh = room.length * SCALE;
+
+                ctx.fillStyle = room.id === activeRoomId ? 'rgba(49, 130, 206, 0.08)' : '#ffffff';
+                ctx.fillRect(rx, rz, rw, rh);
+                ctx.strokeStyle = room.id === activeRoomId ? '#3182ce' : '#cbd5e0';
+                ctx.lineWidth = room.id === activeRoomId ? 2 : 1;
+                ctx.strokeRect(rx, rz, rw, rh);
+
+                ctx.fillStyle = room.id === activeRoomId ? '#2b6cb0' : '#4a5568';
+                ctx.font = '600 12px monospace';
+                ctx.fillText(`${room.id} [${room.width}x${room.length}x${room.height}m]`, rx + 12, rz + 24);
+
+                if (room.id === activeRoomId) {
+                    ctx.fillStyle = '#3182ce'; ctx.font = 'bold 13px monospace';
+                    // ВИПРАВЛЕНО: раніше тут був хардкод "2.0" замість реальних
+                    // room.length/room.width — кнопки [+ВЕРХ]/[+ЛІВО] показувались
+                    // або ховались неправильно для кімнат, відмінних від 2м.
+                    if (!hasRoomAt(room.x, room.z - room.length)) ctx.fillText('[+ ВЕРХ]', rx + rw/2 - 25, rz - 15);
+                    if (!hasRoomAt(room.x, room.z + room.length)) ctx.fillText('[+ НИЗ]', rx + rw/2 - 20, rz + rh + 22);
+                    if (!hasRoomAt(room.x - room.width, room.z)) ctx.fillText('[+ ЛІВО]', rx - 65, rz + rh/2 + 5);
+                    if (!hasRoomAt(room.x + room.width, room.z)) ctx.fillText('[+ ПРАВО]', rx + rw + 12, rz + rh/2 + 5);
+                }
+            });
+
+            // НОВЕ: підсвічуємо спільні (interior) ребра бірюзовим — це те,
+            // куди можна клікнути, щоб поставити двері, коректно розташовані
+            // відносно ОБОХ кімнат незалежно від їхнього розміру
+            const edges = computeWallEdges();
+            ctx.save();
+            ctx.strokeStyle = '#0d9488';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([6, 4]);
+            for (const edge of edges) {
+                if (!edge.roomB) continue; // тільки спільні ребра підсвічуємо
+                const seg = edgeToScreenSegment(edge, originX, originY);
+                ctx.beginPath();
+                ctx.moveTo(seg.x1, seg.z1);
+                ctx.lineTo(seg.x2, seg.z2);
+                ctx.stroke();
+            }
+            ctx.restore();
+
+            // Малюємо самі двері (отвори) поверх стін
+            ctx.save();
+            ctx.strokeStyle = '#dd6b20';
+            ctx.lineWidth = 6;
+            ctx.setLineDash([]);
+            for (const o of openings) {
+                const seg = openingToScreenSegment(o, originX, originY);
+                ctx.beginPath();
+                ctx.moveTo(seg.x1, seg.z1);
+                ctx.lineTo(seg.x2, seg.z2);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function hasRoomAt(x, z) {
+            return rooms.some(r => Math.abs(r.x - x) < 0.2 && Math.abs(r.z - z) < 0.2);
+        }
+
+        // ВИПРАВЛЕНО: e.offsetX/offsetY припускають, що внутрішній піксельний
+        // буфер canvas точно дорівнює його відрендереному CSS-розміру. Це
+        // ламається при девайс-пікселях з високою щільністю (Retina),
+        // масштабуванні сторінки браузером (Ctrl+/-), або якщо CSS-розмір
+        // канваса змінився без точного співпадіння з canvas.width/height.
+        // Тому рахуємо координати явно через getBoundingClientRect() і
+        // масштабний коефіцієнт між реальним буфером і відрендереним розміром.
+        function getCanvasCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            return {
+                x: (e.clientX - rect.left) * scaleX,
+                y: (e.clientY - rect.top) * scaleY
+            };
+        }
+
+        canvas.addEventListener('click', (e) => {
+            const originX = canvas.width / 2; const originY = canvas.height / 2;
+            const { x: mouseX, y: mouseY } = getCanvasCoords(e);
+
+            const activeRoom = rooms.find(r => r.id === activeRoomId);
+            if (activeRoom) {
+                const rx = originX + activeRoom.x * SCALE; const rz = originY + activeRoom.z * SCALE;
+                const rw = activeRoom.width * SCALE; const rh = activeRoom.length * SCALE;
+
+                if (mouseX >= rx + rw + 5 && mouseX <= rx + rw + 75 && mouseY >= rz + rh/2 - 15 && mouseY <= rz + rh/2 + 15) {
+                    addRoom(activeRoom.x + activeRoom.width, activeRoom.z, activeRoom.width, activeRoom.length, activeRoom.height); return;
+                }
+                if (mouseX >= rx - 75 && mouseX <= rx - 5 && mouseY >= rz + rh/2 - 15 && mouseY <= rz + rh/2 + 15) {
+                    addRoom(activeRoom.x - activeRoom.width, activeRoom.z, activeRoom.width, activeRoom.length, activeRoom.height); return;
+                }
+                if (mouseX >= rx + rw/2 - 35 && mouseX <= rx + rw/2 + 35 && mouseY >= rz + rh + 5 && mouseY <= rz + rh + 35) {
+                    addRoom(activeRoom.x, activeRoom.z + activeRoom.length, activeRoom.width, activeRoom.length, activeRoom.height); return;
+                }
+                if (mouseX >= rx + rw/2 - 35 && mouseX <= rx + rw/2 + 35 && mouseY >= rz - 35 && mouseY <= rz - 5) {
+                    addRoom(activeRoom.x, activeRoom.z - activeRoom.length, activeRoom.width, activeRoom.length, activeRoom.height); return;
+                }
+            }
+
+            // НОВЕ: клік по стіні (спільній чи зовнішній) додає/прибирає двері
+            const worldX = (mouseX - originX) / SCALE;
+            const worldZ = (mouseY - originY) / SCALE;
+            if (handleWallClick(worldX, worldZ)) return;
+
+            for (let room of rooms) {
+                const rx = originX + room.x * SCALE; const rz = originY + room.z * SCALE;
+                const rw = room.width * SCALE; const rh = room.length * SCALE;
+                if (mouseX >= rx && mouseX <= rx + rw && mouseY >= rz && mouseY <= rz + rh) {
+                    activeRoomId = room.id; updateInspector(); draw(); return;
+                }
+            }
+        });
+
+        function addRoom(x, z, w, l, h) {
+            roomIdCounter++;
+            const newId = `room_${roomIdCounter}`;
+            rooms.push({ id: newId, width: w, length: l, height: h, x: x, z: z });
+            activeRoomId = newId; updateInspector(); draw();
+        }
+
+        function deleteActiveRoom() {
+            if (rooms.length <= 1) {
+                alert('Неможливо видалити останню кімнату сцени.');
+                return;
+            }
+            const idx = rooms.findIndex(r => r.id === activeRoomId);
+            if (idx === -1) return;
+            const removedId = rooms[idx].id;
+            rooms.splice(idx, 1);
+            // Прибираємо двері, що належали видаленій кімнаті — вони все одно
+            // будуть відфільтровані revalidateOpenings() при наступному draw(),
+            // але робимо це явно тут заради ясності
+            openings = openings.filter(o => o.roomA !== removedId && o.roomB !== removedId);
+            activeRoomId = rooms[0].id;
+            updateInspector();
+            draw();
+        }
+
+        function updateInspector() {
+            const room = rooms.find(r => r.id === activeRoomId);
+            if (!room) return;
+            document.getElementById('no-selection').style.display = 'none';
+            document.getElementById('room-inspector').style.display = 'block';
+            document.getElementById('active-room-id').innerText = room.id;
+            document.getElementById('room-width').value = room.width;
+            document.getElementById('room-length').value = room.length;
+            document.getElementById('room-height').value = room.height;
+        }
+
+        function compileAndSendLayout() {
+            revalidateOpenings();
+            const compiledWalls = []; const compiledFloors = [];
+
+            // Ріже пряму стіну на сегменти "wall"/"door" за явними позиціями
+            // дверей (posAlong вздовж стіни, а не рівномірним розподілом)
+            function processWallWithDoors(x1, z1, x2, z2, roomHeight, normX, normZ, doorPositions) {
+                const dx = x2 - x1; const dz = z2 - z1;
+                const length = Math.sqrt(dx*dx + dz*dz);
+                if (length < 1e-4) return;
+                const ux = dx / length; const uz = dz / length;
+
+                function emit(type, fromT, toT) {
+                    if (toT - fromT < 1e-3) return;
+                    const sx = x1 + ux * fromT, sz = z1 + uz * fromT;
+                    const ex = x1 + ux * toT, ez = z1 + uz * toT;
+                    compiledWalls.push({ start: [sx, sz], end: [ex, ez], type, height: roomHeight, normal: [normX, normZ] });
+                }
+
+                let cursor = 0;
+                for (const d of doorPositions) {
+                    const dStart = Math.max(0, d.posAlong - d.width / 2);
+                    const dEnd = Math.min(length, d.posAlong + d.width / 2);
+                    emit("wall", cursor, dStart);
+                    emit("door", dStart, dEnd);
+                    cursor = dEnd;
+                }
+                emit("wall", cursor, length);
+            }
+
+            rooms.forEach(room => {
+                const x = room.x, z = room.z, w = room.width, l = room.length, h = room.height;
+
+                // Кожна сторона кімнати, з нормаллю СТРОГО ВСЕРЕДИНУ кімнати
+                const sides = [
+                    { side: 'top',    x1: x,     z1: z,     x2: x + w, z2: z,     normX: 0,  normZ: 1  },
+                    { side: 'right',  x1: x + w, z1: z,     x2: x + w, z2: z + l, normX: -1, normZ: 0  },
+                    { side: 'bottom', x1: x + w, z1: z + l, x2: x,     z2: z + l, normX: 0,  normZ: -1 },
+                    { side: 'left',   x1: x,     z1: z + l, x2: x,     z2: z,     normX: 1,  normZ: 0  }
+                ];
+
+                for (const s of sides) {
+                    const dx = s.x2 - s.x1, dz = s.z2 - s.z1;
+                    const length = Math.sqrt(dx*dx + dz*dz);
+                    const ux = dx / length, uz = dz / length;
+
+                    // Двері, що належать саме цій стороні цієї кімнати — або
+                    // як roomA/sideA, або як roomB/sideB (якщо це спільне ребро)
+                    const relevant = openings.filter(o =>
+                        (o.roomA === room.id && o.sideA === s.side) ||
+                        (o.roomB === room.id && o.sideB === s.side)
+                    );
+
+                    const doorPositions = relevant.map(o => {
+                        let wx, wz;
+                        if (o.axis === 'x') { wx = o.center; wz = o.const; }
+                        else                { wx = o.const; wz = o.center; }
+                        const posAlong = (wx - s.x1) * ux + (wz - s.z1) * uz;
+                        return { posAlong, width: o.width };
+                    }).sort((a, b) => a.posAlong - b.posAlong);
+
+                    processWallWithDoors(s.x1, s.z1, s.x2, s.z2, h, s.normX, s.normZ, doorPositions);
+                }
+
+                compiledFloors.push({ min_x: x, max_x: x + w, min_z: z, max_z: z + l, y: 0.0 });
+            });
+
+            const payload = {
+                metadata: { scene_name: "Tactical_Generated_Complex", point_density_per_meter: 65 },
+                materials: { wall: [0.6, 0.6, 0.6], floor: [0.88, 0.9, 0.92], door: [0.75, 0.3, 0.2] },
+                walls: compiledWalls, floors: compiledFloors,
+                // Раніше зберігались лише скомпільовані стіни/підлоги, тож при
+                // перезавантаженні редактор не міг відновити кімнати чи двері.
+                // Генератор (synthetic_generator.py) ці додаткові поля ігнорує.
+                rooms: rooms, roomIdCounter: roomIdCounter,
+                openings: openings, openingIdCounter: openingIdCounter
+            };
+
+            fetch('/api/v1/layout', {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(payload)
+            })
+            .then(res => res.json())
+            .then(() => { window.location.href = "/web/index.html"; })
+            .catch(err => alert("Помилка збірки: " + err));
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('load', () => { resizeCanvas(); loadSavedLayout(); });
+    </script>
+</body>
+</html>
