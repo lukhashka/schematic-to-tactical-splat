@@ -7,7 +7,6 @@ from fastapi import FastAPI, Response, Query, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 import sys
-from fastapi import BackgroundTasks 
 
 app = FastAPI(title="AeroSplat-GIS Tactical Server v0.7")
 
@@ -120,38 +119,35 @@ def save_and_generate_layout(payload: dict = Body(...)):
     except Exception as e:
         print(f"❌ Помилка автогенерації: {str(e)}")
         return Response(content=json.dumps({"error": str(e)}), status_code=500, media_type="application/json")
-    
-    
-# ── 4. ЕНДПОІНТ ТАКТИЧНОЇ ТРАЄКТОРІЇ (BACKGROUND WORKER) ─────────────
-@app.post("/api/v1/trajectory")
-def generate_trajectory_dataset(background_tasks: BackgroundTasks, frames: int = Query(150, ge=10, le=500)):
-    """
-    Triggers the generation of a synthetic COLMAP training track dataset.
-    Runs asynchronously as a background task to keep the FastAPI event loop unblocked.
-    """
-    if not SPLAT_PATH.exists():
-        return Response(content=json.dumps({"error": "Splat file missing. Generate the layout first."}), 
-                        status_code=400, media_type="application/json")
-    
-    try:
-        from trajectory_generator import TacticalOrbitRenderer
-        output_dir = str(BASE_DIR / "data" / "colmap_output")
-        
-        def async_render_worker():
-            print(f"🚀 Starting background camera track generation thread ({frames} frames)...")
-            renderer = TacticalOrbitRenderer(str(SPLAT_PATH), output_dir)
-            renderer.generate_complex_trajectory(num_frames=frames)
-            print("✨ Background trajectory rendering task completed successfully!")
 
-        background_tasks.add_task(async_render_worker)
+
+# ── 4. ЕНДПОІНТ КОЛІЗІЙНОЇ СІТКИ (Layer 2 — для LOS/фізики) ─────────
+# НОВЕ: віддає точну box/plane-геометрію (не хмару точок!) для клієнтського
+# THREE.Raycaster + three-mesh-bvh. Незалежна від point_density_per_meter —
+# саме це прибирає зубчастість/протікання старого shadow-cubemap LOS.
+@app.get("/api/v1/collision-mesh")
+async def get_collision_mesh(cell_size: float = Query(0.2, gt=0.01, le=2.0)):
+    if not GENERATOR_AVAILABLE:
+        return Response(
+            content=json.dumps({"error": f"Generator unavailable: {GENERATOR_IMPORT_ERROR}"}),
+            status_code=503, media_type="application/json"
+        )
+    if not LAYOUT_PATH.exists():
+        return Response(content=json.dumps({"error": "No saved layout yet"}), status_code=404, media_type="application/json")
+
+    try:
+        generator = AnalyticalSplatGenerator(str(LAYOUT_PATH))
+        vertices_flat, indices_flat = generator.build_collision_mesh(cell_size=cell_size)
         return {
-            "status": "processing", 
-            "message": f"Dataset generation worker spawned for {frames} frames.",
-            "output_directory": output_dir
+            "vertices": vertices_flat,   # flat [x0,y0,z0, x1,y1,z1, ...]
+            "indices": indices_flat,     # flat triangle indices (uint32-range ints)
+            "vertex_count": len(vertices_flat) // 3,
+            "triangle_count": len(indices_flat) // 3,
+            "cell_size": cell_size
         }
     except Exception as e:
-        return Response(content=json.dumps({"error": f"Failed to initializa task: {str(e)}"}), 
-                        status_code=500, media_type="application/json")
+        print(f"❌ Помилка генерації колізійної сітки: {str(e)}")
+        return Response(content=json.dumps({"error": str(e)}), status_code=500, media_type="application/json")
 
 
 # Монтування статики

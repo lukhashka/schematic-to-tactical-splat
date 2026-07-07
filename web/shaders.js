@@ -79,9 +79,21 @@ export const fragmentShaderGS = `#version 300 es
         vec3 baseColor = mix(vColor, vColor * 0.68, rim * 0.35);
         vec3 litColor = baseColor;
 
-        if (uLosEnabled && vIsFloor > 0.5) {
-            // Переводимо світові координати XZ в діапазон UV текстури [0.0, 1.0]
-            vec2 losUV = (vWorldPos.xz - uSceneBoundsXZ.xy) / (uSceneBoundsXZ.zw - uSceneBoundsXZ.xy);
+        if (uLosEnabled) {
+            // ВИПРАВЛЕНО: раніше було "uLosEnabled && vIsFloor > 0.5" --
+            // LOS-підсвітка застосовувалась ЛИШЕ до підлоги. Стіни (які в
+            // тактичному ракурсі займають набагато більше екрану) взагалі
+            // не підсвічувались, тож ефект виглядав як "нічого не видно".
+            // Тепер застосовуємо до ВСІХ фрагментів.
+            //
+            // Стіна лежить точно НА межі visibility-полігону (вона сама і Є
+            // перепоною), тож семплінг її буквальної XZ-позиції неоднозначний
+            // (точно на межі білого/чорного). Тому зсуваємо точку семплінгу
+            // трохи (10см) вздовж нормалі фрагмента, у "свою" кімнату. Для
+            // підлоги vNormal.xz == (0,0), тож зсув нульовий і нічого не
+            // змінюється -- одна формула коректно працює для обох випадків.
+            vec2 sampleXZ = vWorldPos.xz + vNormal.xz * 0.1;
+            vec2 losUV = (sampleXZ - uSceneBoundsXZ.xy) / (uSceneBoundsXZ.zw - uSceneBoundsXZ.xy);
 
             if (losUV.x >= 0.0 && losUV.x <= 1.0 && losUV.y >= 0.0 && losUV.y <= 1.0) {
                 // Читаємо червоний канал маски (1.0 = видно/білий, 0.0 = тінь/чорний)
@@ -99,4 +111,4 @@ export const fragmentShaderGS = `#version 300 es
 
         fragColor = vec4(litColor, 1.0);
     }
-`; //[cite: 2]
+`;

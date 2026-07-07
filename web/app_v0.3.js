@@ -54,6 +54,49 @@ losBtn.addEventListener('click', () => {
 const viewToggleBtn = makeButton('🗺️ Вид згори (Top-Down)');
 uiRoot.appendChild(viewToggleBtn);
 
+// ── ТИМЧАСОВО (для перевірки Кроку 1): показати Layer 2 колізійну сітку ──
+// Це НЕ частина фінального LOS (той приїде у Кроці 2, коли TacticalLosEngine
+// перейде на raycasting проти цієї ж сітки). Зараз це лише візуальна
+// перевірка "чи виглядає згенерована колізійна геометрія як будівля".
+const collisionMeshBtn = makeButton('🧱 Показати колізійну сітку (debug)');
+uiRoot.appendChild(collisionMeshBtn);
+let collisionMeshObject = null;
+
+collisionMeshBtn.addEventListener('click', async () => {
+    if (collisionMeshObject) {
+        scene.remove(collisionMeshObject);
+        collisionMeshObject.geometry.dispose();
+        collisionMeshObject.material.dispose();
+        collisionMeshObject = null;
+        collisionMeshBtn.textContent = '🧱 Показати колізійну сітку (debug)';
+        collisionMeshBtn.style.background = '#ffffff';
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/v1/collision-mesh?cell_size=0.2');
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(data.vertices, 3));
+        geometry.setIndex(data.indices);
+
+        const material = new THREE.MeshBasicMaterial({
+            color: 0x06b6d4, wireframe: true, side: THREE.DoubleSide
+        });
+        collisionMeshObject = new THREE.Mesh(geometry, material);
+        scene.add(collisionMeshObject);
+
+        collisionMeshBtn.textContent = `🧱 Приховати сітку (${data.triangle_count} трикутників)`;
+        collisionMeshBtn.style.background = '#e0f7fa';
+        console.log('Collision mesh loaded:', data.vertex_count, 'vertices,', data.triangle_count, 'triangles');
+    } catch (err) {
+        console.error('Помилка завантаження колізійної сітки:', err);
+        alert('Не вдалось завантажити колізійну сітку: ' + err.message);
+    }
+});
+
 // 3. Панель обрізки стіни/стелі (Cutaway)
 const cutawayPanel = document.createElement('div');
 cutawayPanel.style.cssText = 'background:#ffffff; border:1px solid #cbd5e0; border-radius:6px; padding:10px 12px; box-shadow:0 2px 6px rgba(0,0,0,0.08); display:flex; flex-direction:column; gap:6px; min-width:220px;';
@@ -210,18 +253,25 @@ async function loadSpatialData() {
         const material = new THREE.RawShaderMaterial({
             vertexShader: vertexShaderGS,
             fragmentShader: fragmentShaderGS,
+            // Переконайся, що в уніформах головного матеріалу є ці змінні:
             uniforms: {
-                uLosMap: { value: losEngine.texture },               // 2D маска канвасу
-                uSceneBoundsXZ: { value: losEngine.sceneBoundsUniform }, // Світові межі [Vector4]
-                uLosMarkerPos: { value: losEngine.marker.position },
+                // ВИПРАВЛЕНО: попередні uLosCubeMap/uLosMarkerPos/uLosFarPlane
+                // більше не існують у shaders.js (LOS перейшов на точний 2D
+                // visibility polygon замість shadow-cubemap проти хмари точок).
+                // Ці два — те, що новий fragmentShaderGS реально оголошує.
+                uLosMap: { value: losEngine.texture },
+                uSceneBoundsXZ: { value: new THREE.Vector4(-10, -10, 10, 10) },
                 uLosEnabled: { value: false },
                 uCutawayEnabled: { value: false },
-                uCutawayHeight: { value: 999.0 }
+                uCutawayHeight: { value: 999.0 },
+                viewMatrix: { value: camera.matrixWorldInverse }, // Нативний лінк Three.js
+                projectionMatrix: { value: camera.projectionMatrix }
             },
             transparent: false, depthWrite: true, depthTest: true, side: THREE.DoubleSide
         });
 
         activeMesh = new THREE.Mesh(geometry, material);
+        activeMesh.frustumCulled = false; 
         scene.add(activeMesh);
 
         geometry.computeBoundingSphere();
@@ -250,9 +300,9 @@ function animate() {
     controls.update();
     updateScaleBarAndCompass();
 
-    // ФІКС: Видалено застарілий losEngine.updateShadowMap(), 
-    // щоб уникнути падіння головного JS-потоку.
-    
+    // СИНХРОННЕ ОНОВЛЕННЯ LOS ВСЕРЕДИНІ ВЕБГЛ-ПОТОКУ
+    if (losEngine) losEngine.update(); 
+
     renderer.render(scene, camera);
 }
 

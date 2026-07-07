@@ -2,13 +2,7 @@ import torch
 import json
 import numpy as np
 
-# ВИПРАВЛЕНО: раніше `import splat_generator_core` виконувався безумовно на
-# рівні модуля. Якщо розширення ще не скомпільоване, це кидало ImportError
-# одразу при імпорті synthetic_generator — а оскільки main.py тепер імпортує
-# synthetic_generator на рівні модуля (щоб не робити sys.path-хаки на кожен
-# запит), відсутність .so файлу валила б увесь FastAPI-сервер при старті.
-# Тепер відсутність розширення просто вимикає AnalyticalSplatGenerator із
-# чітким повідомленням при спробі використання, а не при імпорті.
+# Зберігаємо безпечний імпорт розширення, щоб не валити FastAPI при старті[cite: 5]
 try:
     import splat_generator_core
     CPP_CORE_AVAILABLE = True
@@ -22,7 +16,7 @@ class AnalyticalSplatGenerator:
         if not CPP_CORE_AVAILABLE:
             raise RuntimeError(
                 "splat_generator_core недоступний (C++ розширення не скомпільоване). "
-                "Зберіть його (напр. `pip install -e .` у теці з setup.py) перед генерацією сцени."
+                "Зберіть його перед генерацією сцени."
             )
 
         with open(layout_path, "r", encoding="utf-8") as f:
@@ -31,10 +25,7 @@ class AnalyticalSplatGenerator:
         self.materials = self.layout["materials"]
         self.density = self.layout["metadata"]["point_density_per_meter"]
 
-        # ВИПРАВЛЕНО: обчислення кутів стін було втрачено при переході на
-        # C++ ядро (використовувалось для AO-затемнення біля кутів). Тепер
-        # рахуємо їх тут же, як і в старій Python-версії, і передаємо в C++
-        # плоским масивом [x0,z0,x1,z1,...].
+        # Розрахунок кутів стін для Ambient Occlusion[cite: 5]
         corners = []
         for w in self.layout["walls"]:
             if w.get("type", "wall") == "wall":
@@ -43,20 +34,45 @@ class AnalyticalSplatGenerator:
         unique_corners = np.unique(np.array(corners), axis=0) if corners else np.empty((0, 2))
         self.corners_flat = [float(v) for pair in unique_corners for v in pair]
 
-    def build_scene_fast(self):
-        wall_color = self.materials.get("wall", [0.6, 0.6, 0.6])
-        floor_color = self.materials.get("floor", [0.88, 0.9, 0.92])
-
+    def _parse_cxx_objects(self):
+        """
+        ВИПРАВЛЕНО: раніше цей парсинг (стіни/отвори/підлоги/дірки → C++
+        об'єкти) був написаний лише один раз, всередині build_scene_fast().
+        Тепер, коли з'явився build_collision_mesh() (Layer 2), обидва методи
+        мають працювати з ОДНАКОВИМИ walls/floors/holes — інакше колізійна
+        сітка й візуальна хмара точок можуть розійтись, якщо хтось поправить
+        парсинг в одному місці й забуде про інше. Тому парсинг тепер один,
+        спільний.
+        """
         cxx_walls = []
         for w in self.layout["walls"]:
-            w_type = 1 if w.get("type", "wall") == "door" else 0
             normal = w.get("normal", [0.0, 0.0])
+            openings = []
+
+            # Зворотна сумісність: якщо редактор прислав готовий відрізок дверей
+            if w.get("type", "wall") == "door":
+                dx = w["end"][0] - w["start"][0]
+                dz = w["end"][1] - w["start"][1]
+                length = float((dx**2 + dz**2)**0.5)
+                openings.append(splat_generator_core.Opening(0.0, length, 0.0, 2.1))
+
+            # Майбутній розширений формат: якщо стіна монолітна, але має масив вбудованих вікон/отворів
+            if "openings" in w:
+                for op in w["openings"]:
+                    v_start = op.get("vert_start", 0.0)
+                    v_end = op.get("vert_end", 2.1)
+
+                    openings.append(splat_generator_core.Opening(
+                        float(op["horiz_start"]), float(op["horiz_end"]),
+                        float(v_start), float(v_end)
+                    ))
+
             cxx_walls.append(splat_generator_core.Wall(
                 float(w["start"][0]), float(w["start"][1]),
                 float(w["end"][0]), float(w["end"][1]),
                 float(w.get("height", 3.0)),
                 float(normal[0]), float(normal[1]),
-                int(w_type)
+                openings
             ))
 
         cxx_floors = []
@@ -67,13 +83,27 @@ class AnalyticalSplatGenerator:
                 float(f["y"])
             ))
 
-        # C++ ядро тепер повертає ПЛОСКІ масиви (xyz: 3/точку, scale: 3/точку,
-        # rotation: 4/точку, opacity: 1/точку, rgb: 3/точку) — набагато швидше
-        # за попередню версію, яка пакувала кожну точку в окремий std::vector.
+        cxx_holes = []
+        if "holes" in self.layout:
+            for h in self.layout["holes"]:
+                cxx_holes.append(splat_generator_core.DestructionHole(
+                    float(h["x"]), float(h["y"]), float(h["z"]), float(h["radius"])
+                ))
+
+        return cxx_walls, cxx_floors, cxx_holes
+
+    def build_scene_fast(self):
+        wall_color = self.materials.get("wall", [0.6, 0.6, 0.6])
+        floor_color = self.materials.get("floor", [0.88, 0.9, 0.92])
+
+        cxx_walls, cxx_floors, cxx_holes = self._parse_cxx_objects()
+
+        # Виклик оновленого C++ ядра з підтримкою 3D руйнувань та прорізів[cite: 6]
         xyz_flat, scale_flat, rotation_flat, opacity_flat, rgb_flat = splat_generator_core.generate_scene(
-            cxx_walls, cxx_floors, float(self.density), wall_color, floor_color, self.corners_flat
+            cxx_walls, cxx_floors, cxx_holes, float(self.density), wall_color, floor_color, self.corners_flat
         )
 
+        # Пакування плоских масивів у PyTorch тензори[cite: 5]
         xyz = torch.tensor(xyz_flat, dtype=torch.float32).reshape(-1, 3)
         scale = torch.tensor(scale_flat, dtype=torch.float32).reshape(-1, 3)
         rotation = torch.tensor(rotation_flat, dtype=torch.float32).reshape(-1, 4)
@@ -81,6 +111,21 @@ class AnalyticalSplatGenerator:
         rgb = torch.tensor(rgb_flat, dtype=torch.float32).reshape(-1, 3)
 
         return xyz, scale, rotation, opacity, rgb
+
+    def build_collision_mesh(self, cell_size: float = 0.2):
+        """
+        Layer 2 — точна колізійна/симуляційна геометрія (box'и стін + плити
+        підлог, з вирізаними отворами/дірками) для THREE.Raycaster +
+        three-mesh-bvh на клієнті. Повністю НЕЗАЛЕЖНА від point_density_per_meter
+        і від точкової хмари — саме це прибирає "зубчастість"/"протікання"
+        старого LOS, побудованого проти хмари точок.
+        """
+        cxx_walls, cxx_floors, cxx_holes = self._parse_cxx_objects()
+
+        vertices_flat, indices_flat = splat_generator_core.generate_collision_mesh(
+            cxx_walls, cxx_floors, cxx_holes, float(cell_size)
+        )
+        return vertices_flat, indices_flat
 
     def save_splat(self, output_path: str):
         xyz, scale, rotation, opacity, rgb = self.build_scene_fast()

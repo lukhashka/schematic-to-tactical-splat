@@ -14,7 +14,7 @@ rule compile
 
 
 
-build c$:\coding\farsight\schematic-to-tactical-splat\build\temp.win-amd64-cpython-311\Release\src/splat_generator_core.obj: compile c$:\coding\farsight\schematic-to-tactical-splat\src\splat_generator_core.cpp
+build C$:\coding\farsight\schematic-to-tactical-splat\build\temp.win-amd64-cpython-311\Release\src/splat_generator_core.obj: compile C$:\coding\farsight\schematic-to-tactical-splat\src\splat_generator_core.cpp
 
 
 
