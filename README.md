@@ -36,6 +36,16 @@ Schematic-To-CQB is an engineering and simulation pipeline designed to conceptua
 
 ---
 
+## 👁️ Tactical Line-of-Sight (LOS) Engine
+
+A real-time tactical visibility analysis module that computes dead zones and fields of fire using an optimized 2D vector-based raycasting pipeline.
+
+### Visualization
+
+![Tactical LOS Demonstration](assets/images/assets_03.png)
+
+---
+
 ## 🛠️ Tech Stack
 
 | Category | Technologies |
